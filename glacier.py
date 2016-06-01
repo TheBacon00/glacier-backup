@@ -6,9 +6,43 @@ This is a temporary script file.
 """
 
 #Import modules
-import os, zipfile, re, boto3, json, base64
+import os, zipfile, re, boto3, json, base64, logging, getopt, sys
+from datetime import datetime
 from time import sleep
 from treehash import TreeHash
+
+#Set the arguments
+optlist, remainder = getopt.getopt(sys.argv[1:], 'v:p:', ['vault=','path='])
+
+picture_path = 'D:\\Users\\Garet\\Pictures' #should be arg.
+target_vault_name = 'Photos' #should be arg.
+
+for opt, arg in optlist:
+    if opt == '--vault':
+        target_vault_name = arg
+    if opt == '--path':
+        picture_path = arg
+
+#Add logging
+logger = logging.getLogger('test_app')
+
+logger.setLevel(logging.DEBUG)
+
+now = datetime.now().strftime('%d%m%Y-%H%M%S')
+
+fh = logging.FileHandler('log-{timestamp}.txt'.format(timestamp=now))
+fh.setLevel(logging.DEBUG)
+
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+fh.setFormatter(formatter)
+ch.setFormatter(formatter)
+
+logger.addHandler(fh)
+logger.addHandler(ch)
 
 #Functions
 def writeZipfile(path, zipfile_object, archive_path=''):
@@ -72,9 +106,7 @@ def uploadPart(glacier_client, vault_name, upload_id, start_at, end_at, chunk, c
             body=chunk
         )
 
-picture_path = 'D:\\Users\\Garet\\Pictures' #should be arg.
 not_archived = []
-target_vault_name = 'Photos' #should be arg.
 
 glacier = boto3.client('glacier')
 
