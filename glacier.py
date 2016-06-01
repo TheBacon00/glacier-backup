@@ -5,6 +5,7 @@ Spyder Editor
 This is a temporary script file.
 """
 
+#Import modules
 import os, zipfile, re, boto3, json, base64
 from time import sleep
 from treehash import TreeHash
