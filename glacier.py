@@ -10,6 +10,7 @@ import os, zipfile, re, boto3, json, base64
 from time import sleep
 from treehash import TreeHash
 
+#Functions
 def writeZipfile(path, zipfile_object, archive_path=''):
     for f in os.scandir(path):
         if f.is_file():
