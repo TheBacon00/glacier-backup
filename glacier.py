@@ -107,24 +107,47 @@ def uploadPart(glacier_client, vault_name, upload_id, start_at, end_at, chunk, c
         )
 
 not_archived = []
+logger.debug('Set not_archived to an empty list')
 
 glacier = boto3.client('glacier')
+logger.debug('Set glacier to boto3 client.')
 
 parameters = {
     'Format' : 'JSON',
     'Type' : 'inventory-retrieval',
 }
+logger.debug('Glacier inventory request parameters set to: ' + str(parameters))
 
-inventory_request = glacier.initiate_job(vaultName=target_vault_name, jobParameters=parameters)
+try:
+    inventory_request = glacier.initiate_job(vaultName=target_vault_name, jobParameters=parameters)
+except:
+    logger.critical('Failure getting inventory request from Glacier. Please re-run the program. Exiting with ConnectionError.')
+    raise ConnectionError('Could not connect to Glacier for inventory export.')
+
+logger.info('Inventory request response: ' + str(inventory_request))
+logger.info('Entering while loop to check for completed inventory request.')
 
 while True:
-    response = glacier.describe_job(vaultName=target_vault_name, jobId=inventory_request['jobId'])
+    try:
+        logger.info('Querying Glacier for description of current jobs.')
+        response = glacier.describe_job(vaultName=target_vault_name, jobId=inventory_request['jobId'])
+        logger.debug('Response from Glacier concerning jobs: ' + str(response))
+    except:
+        logger.error('Problem connecting to Glacier, will retry after wait period.')
     if response['Completed']:
-        inventory_data = glacier.get_job_output(vaultName=target_vault_name, jobId=inventory_request['jobId'])        
+        try:
+            logger.info('Job completed!')
+            inventory_data = glacier.get_job_output(vaultName=target_vault_name, jobId=inventory_request['jobId'])
+            logger.debug('inventory_data: ' + str(inventory_data))
+        except:
+            logger.critical('Failure getting job output from Glacier!')
+            raise ConnectionError('Could not get job output from Glacier.')
         break
-    print('Job not completed')
-    print('Job id: ' + inventory_request['jobId'])
+    logger.info('Job not complete')
+    logger.debug('Job id: ' + inventory_request['jobId'])
+    logger.info('Entering sleep state...')
     sleep(600)
+    logger.debug('Sleep done, checking...')
 
 data = inventory_data['body'].read()
 decoded_data = json.loads(data.decode('utf-8'))
