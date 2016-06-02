@@ -147,36 +147,59 @@ while True:
     logger.debug('Job id: ' + inventory_request['jobId'])
     logger.info('Entering sleep state...')
     sleep(600)
-    logger.debug('Sleep done, checking...')
+    logger.debug('Sleep done, restarting loop.')
 
-data = inventory_data['body'].read()
-decoded_data = json.loads(data.decode('utf-8'))
+
+try:
+    logger.info('Reading inventory data and converting from JSON to dict object.')
+    data = inventory_data['body'].read()
+    decoded_data = json.loads(data.decode('utf-8'))
+except:
+    logger.critical('Problem converting data from JSON to dict object.')
+    raise RuntimeError('Problem converting JSON data to dict object.')
 
 archived = []
 decoded_archived = []
 
+logger.debug('Adding all ArchiveDescriptions from current Glacier inventory to [archived] list.')
 for i in decoded_data['ArchiveList']:
     archived.append(i['ArchiveDescription'])
-    
+
+logger.debug('Starting regex matching of ArchiveDescriptions.')
 for o in archived:
+    logger.info('Checking ' + str(o))
     p1 = re.compile(r'^.+<p>(.+)<\/p>')
     p2 = re.compile(r'^{\"Path\":\"(?P<filename>.+\.\w+)\"')
     m1 = p1.match(o)
     m2 = p2.match(o)
     if m1:
+        logger.debug(str(o) + ' is a match, doing Base64 decoding to determine actual ArchiveDescription.')
         decode_string = base64.b64decode(m1.group(1)).decode('utf-8')
+        logger.info('Decoded to ' + str(decode_string))
         p3 = re.compile(r'^(?P<Folder>(?:\w+\/)*)(?P<filename>.+\.\w+)$')
         m3 = p3.match(decode_string)
         if m3:
+            logger.info(str(decode_string) + ' is a match!')
             decoded_archived.append(m3.group('filename'))
+        else:
+            logger.debug(str(decode_string) + ' is not a match.')
+    else:
+        logger.debug(str(o) + ' is not a match.')
     if m2:
+        logger.info(str(o) + ' is a match!')
         decoded_archived.append(m2.group('filename'))
+    else:
+        logger.debug(str(o) + ' is not a match.')
 
 #Should be argument to sync files w/ the below match type, or all files?
+logger.info('Checking Glacier inventory against what is at ' + str(picture_path))
 for entry in os.scandir(picture_path):
+    logger.debug('Found ' + entry.name + ' at ' + picture_path )
     potential_zip = entry.name + '.zip'
     if entry.is_dir() and re.match(r'\d+[_\-]\d+[_\-]\d+', entry.name) and potential_zip not in decoded_archived: 
+        logger.info(entry.name + ' matches the pattern \d+[_\-]\d+[_\-]\d+ and is not currently in Glacier as a zip file.')        
         not_archived.append({'Zipfile' : potential_zip, 'Path' : (picture_path + '\\' + entry.name)})
+        logger.info(potential_zip + ' added to list of archives that need to be created uploaded.')
 
 for n in not_archived:
     with zipfile.ZipFile(n['Zipfile'], 'w', allowZip64=True) as zf:
