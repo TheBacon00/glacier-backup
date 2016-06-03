@@ -30,7 +30,7 @@ logger.setLevel(logging.DEBUG)
 
 now = datetime.now().strftime('%d%m%Y-%H%M%S')
 
-fh = logging.FileHandler('log-{timestamp}.txt'.format(timestamp=now))
+fh = logging.FileHandler('\\logs\\log-{timestamp}.txt'.format(timestamp=now))
 fh.setLevel(logging.DEBUG)
 
 ch = logging.StreamHandler()
