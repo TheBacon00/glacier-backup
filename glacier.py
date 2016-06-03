@@ -24,7 +24,7 @@ for opt, arg in optlist:
         picture_path = arg
 
 #Add logging
-logger = logging.getLogger('test_app')
+logger = logging.getLogger('glacier-backup')
 
 logger.setLevel(logging.DEBUG)
 
@@ -34,7 +34,7 @@ fh = logging.FileHandler('log-{timestamp}.txt'.format(timestamp=now))
 fh.setLevel(logging.DEBUG)
 
 ch = logging.StreamHandler()
-ch.setLevel(logging.INFO)
+ch.setLevel(logging.DEBUG)
 
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
@@ -60,12 +60,16 @@ def writeZipfile(path, zipfile_object, archive_path=''):
 
 def getExistingUploads(glacier_client, vault_name, previous_result=None, page_marker=None):
     all_uploads = []
+    #logger.debug('In function getExistingUploads.')
     if page_marker == None:
+        #logger.debug('No page marker.')
         uploads = glacier_client.list_multipart_uploads(vaultName=vault_name)
     else:
+        #logger.debug('Page marker found. Asking glacier for next list of existing multipart uploads and passing marker: ' + page_marker)
         uploads = glacier_client.list_multipart_uploads(vaultName=vault_name, marker=page_marker)
     
     if previous_result != None:
+        #logger.debug('')
         all_uploads.append(previous_result)
     for upload in uploads['UploadsList']:
         all_uploads.append(upload)
@@ -202,15 +206,20 @@ for entry in os.scandir(picture_path):
         logger.info(potential_zip + ' added to list of archives that need to be created uploaded.')
 
 for n in not_archived:
+    logger.info('Processing ' + str(n))
     with zipfile.ZipFile(n['Zipfile'], 'w', allowZip64=True) as zf:
+        logger.info('Writing zipfile ' + n['Path'])
         writeZipfile(n['Path'], zf)
     
     with open(n['Zipfile'], 'rb') as file:
         expected_fullhash = TreeHash()
         expected_fullhash.update(file.read())
         expected_fullhash_value = expected_fullhash.hexdigest()
+        logger.debug('Expected full file hash is ' + str(expected_fullhash_value))
+        
         file.seek(0)
         #Check for multipart upload in progress
+        logger.debug('Entering getExistingUploads, passing glacier object and target_vault_name: ' + target_vault_name)
         existing_uploads = getExistingUploads(glacier, target_vault_name)
     
         start_byte = 0
@@ -218,22 +227,26 @@ for n in not_archived:
         chunksize = 8388608
         fullhash = TreeHash()
         description = '{"Path":"' + n['Zipfile'] + ', "ExpectedTreeHash":"' + expected_fullhash_value + '"}'
-    
-        matching_uploads = list(filter(lambda x: x['ArchiveDescription'] == description, existing_uploads))
+        logger.info('Starting file upload process. File description: ' + description)
+        logger.info('Chunksize: ' + str(chunksize))
         
+        matching_uploads = list(filter(lambda x: x['ArchiveDescription'] == description, existing_uploads))
+        logger.info('Checked for existing uploads of this file. Found ' + str(len(matching_uploads)) + ' matches.')
         if len(matching_uploads) > 0:
-            print('Existing upload, resuming...')
+            logger.info('Existing upload found, resuming from most recent.')
             upload = matching_uploads[-1]
+            logger.debug('Entering getExistingParts function.')
             existing_parts = getExistingParts(glacier, target_vault_name, upload['MultipartUploadId'])
+            logger.debug('Exited getExistingParts. Found ' + str(len(existing_parts['Parts'])) + ' parts.')
             if len(existing_parts['Parts']) > 0:
                 last_part = existing_parts['Parts'][-1]
                 start_byte = int(last_part['RangeInBytes'].split('-')[1]) + 1
-            session_uploadId = upload['MultipartUploadId']     
+                logger.info('Start byte is ' + str(start_byte))
+            session_uploadId = upload['MultipartUploadId']
             chunksize = upload['PartSizeInBytes']
-            print('Start byte will be', start_byte)
     
         else:
-            print('New upload!')
+            logger.info('No existing upload found -- starting new upload.')
             new_upload = startUpload(
                 glacier_client=glacier,
                 vault_name=target_vault_name,
@@ -241,34 +254,42 @@ for n in not_archived:
                 chunk_size = str(chunksize)
             )
             session_uploadId = new_upload['uploadId']
-                    
+            logger.debug('New uploadId is ' + str(session_uploadId))
+            
         end_byte = (-1)
+        
         if start_byte != 0:
             file_size = file_size + (start_byte)
+            logger.debug('start_byte is not 0. Starting at ' + str(file_size))
             uploaded_bytes = file.read(start_byte)
             fullhash.update(uploaded_bytes)
             uploaded_bytes = None
             end_byte = start_byte - 1
+            logger.debug('end_byte is ' + str(end_byte))
         
+        logger.info('Starting multipart upload.')
         while True:
             chunk_bytes = file.read(chunksize)
             if not chunk_bytes:
+                logger.info('No more bytes to upload.')
                 break
-            chunk_length = len(chunk_bytes)
-            file_size = file_size + len(chunk_bytes)
             
+            chunk_length = len(chunk_bytes)
+            file_size = file_size + chunk_length
+            
+            logger.debug('Generating TreeHash for chunk.')
             chunkhash = TreeHash()
             
             fullhash.update(chunk_bytes)
             chunkhash.update(chunk_bytes)
             
             chunk_hash_value = chunkhash.hexdigest()
+            logger.debug('Chunk hash value is ' + str(chunk_hash_value))
             
             end_byte = end_byte + chunk_length 
             
-            print('start byte', start_byte)
-            print('end_byte', end_byte)
-            
+            logger.info('For this chunk, start byte is ' + str(start_byte) + ' and end byte is ' + str(end_byte))
+            logger.debug('Entering uploadPart function.')
             uploadPart(
                 glacier_client=glacier,
                 vault_name=target_vault_name,
@@ -278,13 +299,16 @@ for n in not_archived:
                 end_at=str(end_byte),
                 chunk=chunk_bytes
             )
+            logger.debug('Exited uploadPart function.')
             
             start_byte = end_byte + 1
+            logger.info('Next chunk will have a start_byte of ' + str(start_byte))
             
     full_hash_value = fullhash.hexdigest()
+    logger.debug('Final TreeHash is ' + str(full_hash_value))
     
     try:
-        print('Upload completed for ' + n['Zipfile'])
+        logger.info('Upload completed for ' + n['Zipfile'])
         completion_results = glacier.complete_multipart_upload(
             vaultName=target_vault_name,
             uploadId=session_uploadId,
@@ -292,11 +316,9 @@ for n in not_archived:
             checksum=str(full_hash_value)
         )
     except:
-        print('Could not complete upload. Possibly TreeHashes did not match. Deleting MultipartUpload {uploadId} for manual re-try.'.format(uploadId=session_uploadId)) 
+        logger.error('Could not complete upload. Possibly TreeHashes did not match. Deleting MultipartUpload {uploadId} for manual re-try.'.format(uploadId=session_uploadId)) 
         glacier.abort_multipart_upload(uploadId=session_uploadId, vaultName=target_vault_name)
-              
-
-    #If there is one and it matches n, resume it from the last chunk uploaded.
-    
+                  
     #Delete n
+    logger.info('Deleting ' + n['Zipfile'])
     os.remove(n['Zipfile'])
