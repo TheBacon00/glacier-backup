@@ -215,11 +215,11 @@ for n in not_archived:
         expected_fullhash = TreeHash()
         expected_fullhash.update(file.read())
         expected_fullhash_value = expected_fullhash.hexdigest()
-        logger.debug('Expected full file hash is ' + str(expected_fullhash_value))
+        logger.debug('File: ' + n['Zipfile'] + '. Expected full file hash is ' + str(expected_fullhash_value))
         
         file.seek(0)
         #Check for multipart upload in progress
-        logger.debug('Entering getExistingUploads, passing glacier object and target_vault_name: ' + target_vault_name)
+        logger.debug('File: ' + n['Zipfile'] + '. Entering getExistingUploads, passing glacier object and target_vault_name: ' + target_vault_name)
         existing_uploads = getExistingUploads(glacier, target_vault_name)
     
         start_byte = 0
@@ -227,26 +227,26 @@ for n in not_archived:
         chunksize = 8388608
         fullhash = TreeHash()
         description = '{"Path":"' + n['Zipfile'] + ', "ExpectedTreeHash":"' + expected_fullhash_value + '"}'
-        logger.info('Starting file upload process. File description: ' + description)
-        logger.info('Chunksize: ' + str(chunksize))
+        logger.info('File: ' + n['Zipfile'] + '. Starting file upload process. File description: ' + description)
+        logger.info('File: ' + n['Zipfile'] + '. Chunksize: ' + str(chunksize))
         
         matching_uploads = list(filter(lambda x: x['ArchiveDescription'] == description, existing_uploads))
-        logger.info('Checked for existing uploads of this file. Found ' + str(len(matching_uploads)) + ' matches.')
+        logger.info('File: ' + n['Zipfile'] + '. Checked for existing uploads of this file. Found ' + str(len(matching_uploads)) + ' matches.')
         if len(matching_uploads) > 0:
-            logger.info('Existing upload found, resuming from most recent.')
+            logger.info('File: ' + n['Zipfile'] + '. Existing upload found, resuming from most recent.')
             upload = matching_uploads[-1]
-            logger.debug('Entering getExistingParts function.')
+            logger.debug('File: ' + n['Zipfile'] + '. Entering getExistingParts function.')
             existing_parts = getExistingParts(glacier, target_vault_name, upload['MultipartUploadId'])
-            logger.debug('Exited getExistingParts. Found ' + str(len(existing_parts['Parts'])) + ' parts.')
+            logger.debug('File: ' + n['Zipfile'] + '. Exited getExistingParts. Found ' + str(len(existing_parts['Parts'])) + ' parts.')
             if len(existing_parts['Parts']) > 0:
                 last_part = existing_parts['Parts'][-1]
                 start_byte = int(last_part['RangeInBytes'].split('-')[1]) + 1
-                logger.info('Start byte is ' + str(start_byte))
+                logger.info('File: ' + n['Zipfile'] + '. Start byte is ' + str(start_byte))
             session_uploadId = upload['MultipartUploadId']
             chunksize = upload['PartSizeInBytes']
     
         else:
-            logger.info('No existing upload found -- starting new upload.')
+            logger.info('File: ' + n['Zipfile'] + '. No existing upload found -- starting new upload.')
             new_upload = startUpload(
                 glacier_client=glacier,
                 vault_name=target_vault_name,
@@ -254,42 +254,42 @@ for n in not_archived:
                 chunk_size = str(chunksize)
             )
             session_uploadId = new_upload['uploadId']
-            logger.debug('New uploadId is ' + str(session_uploadId))
+            logger.debug('File: ' + n['Zipfile'] + '. New uploadId is ' + str(session_uploadId))
             
         end_byte = (-1)
         
         if start_byte != 0:
             file_size = file_size + (start_byte)
-            logger.debug('start_byte is not 0. Starting at ' + str(file_size))
+            logger.debug('File: ' + n['Zipfile'] + '. start_byte is not 0. Starting at ' + str(file_size))
             uploaded_bytes = file.read(start_byte)
             fullhash.update(uploaded_bytes)
             uploaded_bytes = None
             end_byte = start_byte - 1
             logger.debug('end_byte is ' + str(end_byte))
         
-        logger.info('Starting multipart upload.')
+        logger.info('File: ' + n['Zipfile'] + '. Starting multipart upload.')
         while True:
             chunk_bytes = file.read(chunksize)
             if not chunk_bytes:
-                logger.info('No more bytes to upload.')
+                logger.info('File: ' + n['Zipfile'] + '. No more bytes to upload.')
                 break
             
             chunk_length = len(chunk_bytes)
             file_size = file_size + chunk_length
             
-            logger.debug('Generating TreeHash for chunk.')
+            logger.debug('File: ' + n['Zipfile'] + '. Generating TreeHash for chunk.')
             chunkhash = TreeHash()
             
             fullhash.update(chunk_bytes)
             chunkhash.update(chunk_bytes)
             
             chunk_hash_value = chunkhash.hexdigest()
-            logger.debug('Chunk hash value is ' + str(chunk_hash_value))
+            logger.debug('File: ' + n['Zipfile'] + 'Chunk hash value is ' + str(chunk_hash_value))
             
             end_byte = end_byte + chunk_length 
             
-            logger.info('For this chunk, start byte is ' + str(start_byte) + ' and end byte is ' + str(end_byte))
-            logger.debug('Entering uploadPart function.')
+            logger.info('File: ' + n['Zipfile'] + '. For this chunk, start byte is ' + str(start_byte) + ' and end byte is ' + str(end_byte))
+            logger.debug('File: ' + n['Zipfile'] + '. Entering uploadPart function.')
             uploadPart(
                 glacier_client=glacier,
                 vault_name=target_vault_name,
@@ -299,10 +299,10 @@ for n in not_archived:
                 end_at=str(end_byte),
                 chunk=chunk_bytes
             )
-            logger.debug('Exited uploadPart function.')
+            logger.debug('File: ' + n['Zipfile'] + '. Exited uploadPart function.')
             
             start_byte = end_byte + 1
-            logger.info('Next chunk will have a start_byte of ' + str(start_byte))
+            logger.info('File: ' + n['Zipfile'] + '. Next chunk will have a start_byte of ' + str(start_byte))
             
     full_hash_value = fullhash.hexdigest()
     logger.debug('Final TreeHash is ' + str(full_hash_value))
